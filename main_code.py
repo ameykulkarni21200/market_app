@@ -27,16 +27,45 @@ risk_reward_ratio = st.sidebar.number_input("Risk-Reward Ratio", min_value=1.0, 
 
 # Function to fetch data based on market
 def fetch_data(market, symbol, start_date, end_date):
-    if market == "Indian Market":
-        data = yf.download(f"{symbol}.NS", start=start_date, end=end_date)
-    elif market == "Crypto Market":
-        exchange = ccxt.binance()
-        data = exchange.fetch_ohlcv(symbol, timeframe='1d', since=exchange.parse8601(start_date))
-        data = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
-    elif market == "Forex Market":
-        data = yf.download(symbol, start=start_date, end=end_date)
-    return data
+    try:
+        if market == "Indian Market":
+            data = yf.download(f"{symbol}.NS", start=start_date, end=end_date)
+
+        elif market == "Crypto Market":
+            exchange = ccxt.binance()
+            data = exchange.fetch_ohlcv(symbol, timeframe='1d', since=exchange.parse8601(start_date))
+            data = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+            data.set_index('timestamp', inplace=True)
+
+        elif market == "Forex Market":
+            data = yf.download(symbol, start=start_date, end=end_date)
+
+        if data.empty:
+            st.error("No data found. Please check the symbol or date range.")
+            return None
+        return data
+
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
+        return None
+
+# Function to calculate Value-at-Risk (VaR)
+def calculate_var(data, confidence=0.95):
+    if "close" in data.columns:
+        returns = data["close"].pct_change().dropna()
+        var = np.percentile(returns, (1 - confidence) * 100)
+        return var
+    return None
+
+# Function to calculate Maximum Drawdown
+def calculate_max_drawdown(data):
+    if "close" in data.columns:
+        cumulative_returns = (1 + data["close"].pct_change()).cumprod()
+        peak = cumulative_returns.cummax()
+        drawdown = (cumulative_returns - peak) / peak
+        return drawdown.min()
+    return None
 
 # Main app
 st.header(f"{market} - {strategy} Strategy")
@@ -50,31 +79,53 @@ end_date = st.date_input("End Date", pd.to_datetime("2023-01-01"))
 data = fetch_data(market, symbol, start_date, end_date)
 
 # Display data
-if not data.empty:
+if data is not None and not data.empty:
     st.write(f"Data for {symbol}")
     st.write(data)
 
-    # Plot data
-    fig = px.line(data, x=data.index, y='close', title=f"{symbol} Price Chart")
-    st.plotly_chart(fig)
+    # Ensure index is datetime
+    if not isinstance(data.index, pd.DatetimeIndex):
+        data.index = pd.to_datetime(data.index)
+
+    # Check if 'close' column exists before plotting
+    if 'close' in data.columns:
+        fig = px.line(data, x=data.index, y='close', title=f"{symbol} Price Chart")
+        st.plotly_chart(fig)
+    else:
+        st.error("The 'close' column is missing. Please check the symbol or market selection.")
 
     # Apply strategy
     if strategy == "Trend Following":
-        data['SMA'] = data['close'].rolling(window=20).mean()
-        fig = px.line(data, x=data.index, y=['close', 'SMA'], title="Trend Following - Simple Moving Average")
-        st.plotly_chart(fig)
+        if 'close' in data.columns:
+            data['SMA'] = data['close'].rolling(window=20).mean()
+            fig = px.line(data, x=data.index, y=['close', 'SMA'], title="Trend Following - Simple Moving Average")
+            st.plotly_chart(fig)
 
     elif strategy == "Mean Reversion":
-        data['SMA'] = data['close'].rolling(window=20).mean()
-        data['Deviation'] = data['close'] - data['SMA']
-        fig = px.line(data, x=data.index, y=['Deviation'], title="Mean Reversion - Deviation from SMA")
-        st.plotly_chart(fig)
+        if 'close' in data.columns:
+            data['SMA'] = data['close'].rolling(window=20).mean()
+            data['Deviation'] = data['close'] - data['SMA']
+            fig = px.line(data, x=data.index, y=['Deviation'], title="Mean Reversion - Deviation from SMA")
+            st.plotly_chart(fig)
 
     elif strategy == "Range Trading":
-        data['Rolling High'] = data['high'].rolling(window=20).max()
-        data['Rolling Low'] = data['low'].rolling(window=20).min()
-        fig = px.line(data, x=data.index, y=['close', 'Rolling High', 'Rolling Low'], title="Range Trading - Rolling Highs and Lows")
-        st.plotly_chart(fig)
+        if all(col in data.columns for col in ['high', 'low', 'close']):
+            data['Rolling High'] = data['high'].rolling(window=20).max()
+            data['Rolling Low'] = data['low'].rolling(window=20).min()
+            fig = px.line(data, x=data.index, y=['close', 'Rolling High', 'Rolling Low'], title="Range Trading - Rolling Highs and Lows")
+            st.plotly_chart(fig)
+
+    elif strategy == "Scalping":
+        if "close" in data.columns:
+            data['EMA'] = data['close'].ewm(span=9, adjust=False).mean()
+            fig = px.line(data, x=data.index, y=['close', 'EMA'], title="Scalping - Exponential Moving Average")
+            st.plotly_chart(fig)
+
+    elif strategy == "Market Making":
+        if all(col in data.columns for col in ['open', 'close']):
+            data['Spread'] = data['close'] - data['open']
+            fig = px.bar(data, x=data.index, y='Spread', title="Market Making - Bid-Ask Spread")
+            st.plotly_chart(fig)
 
     # Risk management calculations
     st.header("Risk Management Metrics")
@@ -82,5 +133,16 @@ if not data.empty:
     st.write(f"Position Size: {position_size}% of Capital")
     st.write(f"Risk-Reward Ratio: {risk_reward_ratio}")
 
+    # Additional Risk Metrics
+    var = calculate_var(data)
+    drawdown = calculate_max_drawdown(data)
+
+    st.write(f"Value-at-Risk (VaR 95%): {var:.5f}" if var else "VaR could not be calculated.")
+    st.write(f"Maximum Drawdown: {drawdown:.5f}" if drawdown else "Max Drawdown could not be calculated.")
+
+    # Backtesting Placeholder
+    st.header("Backtesting (Coming Soon)")
+    st.info("Backtesting functionality will be added in future updates.")
+
 else:
-    st.error("No data found for the given symbol and market. Please check your inputs.")
+    st.error("No valid data available. Please check your inputs.")
