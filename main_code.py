@@ -49,16 +49,18 @@ def fetch_data(market, symbol, start_date, end_date):
 
 # Function to calculate Value-at-Risk (VaR)
 def calculate_var(data, confidence=0.95):
-    if "close" in data.columns:
-        returns = data["close"].pct_change().dropna()
+    if data.shape[1] > 1:  # Check for multi-level columns
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        returns = close_column.pct_change().dropna()
         var = np.percentile(returns, (1 - confidence) * 100)
         return var
     return None
 
 # Function to calculate Maximum Drawdown
 def calculate_max_drawdown(data):
-    if "close" in data.columns:
-        cumulative_returns = (1 + data["close"].pct_change()).cumprod()
+    if data.shape[1] > 1:  # Check for multi-level columns
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        cumulative_returns = (1 + close_column.pct_change()).cumprod()
         peak = cumulative_returns.cummax()
         drawdown = (cumulative_returns - peak) / peak
         return drawdown.min()
@@ -82,33 +84,42 @@ if data is not None and not data.empty:
     if not isinstance(data.index, pd.DatetimeIndex):
         data.index = pd.to_datetime(data.index)
 
-    if "close" in data.columns:
-        fig = px.line(data, x=data.index, y="close", title=f"{symbol} Price Chart")
+    if data.shape[1] > 1:  # Handle multi-level columns
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        fig = px.line(data, x=data.index, y=close_column, title=f"{symbol} Price Chart")
         st.plotly_chart(fig)
     else:
         st.error("The 'close' column is missing. Please check the symbol or market selection.")
     
     # Strategy Implementation
-    if strategy == "Trend Following" and "close" in data.columns:
-        data["SMA"] = data["close"].rolling(window=20).mean()
+    if strategy == "Trend Following" and data.shape[1] > 1:
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        data["SMA"] = close_column.rolling(window=20).mean()
         fig = px.line(data, x=data.index, y=["close", "SMA"], title="Trend Following - SMA")
         st.plotly_chart(fig)
-    elif strategy == "Mean Reversion" and "close" in data.columns:
-        data["SMA"] = data["close"].rolling(window=20).mean()
-        data["Deviation"] = data["close"] - data["SMA"]
+    elif strategy == "Mean Reversion" and data.shape[1] > 1:
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        data["SMA"] = close_column.rolling(window=20).mean()
+        data["Deviation"] = close_column - data["SMA"]
         fig = px.line(data, x=data.index, y=["Deviation"], title="Mean Reversion - Deviation from SMA")
         st.plotly_chart(fig)
     elif strategy == "Range Trading" and all(col in data.columns for col in ['high', 'low', 'close']):
-        data["Rolling High"] = data["high"].rolling(window=20).max()
-        data["Rolling Low"] = data["low"].rolling(window=20).min()
+        high_column = data.iloc[:, data.columns.get_loc('high')]
+        low_column = data.iloc[:, data.columns.get_loc('low')]
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        data["Rolling High"] = high_column.rolling(window=20).max()
+        data["Rolling Low"] = low_column.rolling(window=20).min()
         fig = px.line(data, x=data.index, y=["close", "Rolling High", "Rolling Low"], title="Range Trading")
         st.plotly_chart(fig)
-    elif strategy == "Scalping" and "close" in data.columns:
-        data["EMA"] = data["close"].ewm(span=9, adjust=False).mean()
+    elif strategy == "Scalping" and data.shape[1] > 1:
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        data["EMA"] = close_column.ewm(span=9, adjust=False).mean()
         fig = px.line(data, x=data.index, y=["close", "EMA"], title="Scalping - EMA")
         st.plotly_chart(fig)
     elif strategy == "Market Making" and all(col in data.columns for col in ['open', 'close']):
-        data["Spread"] = data["close"] - data["open"]
+        open_column = data.iloc[:, data.columns.get_loc('open')]
+        close_column = data.iloc[:, data.columns.get_loc('close')]
+        data["Spread"] = close_column - open_column
         fig = px.bar(data, x=data.index, y="Spread", title="Market Making - Spread")
         st.plotly_chart(fig)
     
