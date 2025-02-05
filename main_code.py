@@ -21,6 +21,7 @@ st.sidebar.header("Risk Management")
 stop_loss = st.sidebar.number_input("Stop-Loss (%)", min_value=0.1, max_value=10.0, value=2.0)
 position_size = st.sidebar.number_input("Position Size (% of Capital)", min_value=1, max_value=100, value=10)
 risk_reward_ratio = st.sidebar.number_input("Risk-Reward Ratio", min_value=1.0, max_value=5.0, value=2.0)
+confidence_interval = st.sidebar.number_input("VaR Confidence Interval (%)", min_value=90, max_value=99, value=95)
 
 # Function to fetch data
 def fetch_data(market, symbol, start_date, end_date):
@@ -40,6 +41,29 @@ def fetch_data(market, symbol, start_date, end_date):
         data.columns = ['_'.join(col).strip() for col in data.columns.values]
 
     return data
+
+# Calculate Value at Risk (VaR) using Historical Simulation
+def calculate_var(data, confidence_interval=95):
+    # Calculate daily returns
+    returns = data.pct_change().dropna()
+
+    # Calculate VaR at the given confidence level
+    var_percentile = np.percentile(returns, (100 - confidence_interval))
+    var = -var_percentile * 100  # Convert to percentage
+    return var
+
+# Calculate Rolling Volatility
+def calculate_volatility(data, window=20):
+    returns = data.pct_change().dropna()
+    volatility = returns.rolling(window=window).std() * np.sqrt(252)  # Annualized volatility
+    return volatility
+
+# Calculate Sharpe Ratio
+def calculate_sharpe_ratio(data, risk_free_rate=0.02):
+    returns = data.pct_change().dropna()
+    excess_returns = returns - risk_free_rate / 252
+    sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(252)  # Annualized Sharpe Ratio
+    return sharpe_ratio
 
 # Main App
 st.header(f"{market} - {strategy} Strategy")
@@ -104,6 +128,19 @@ if not data.empty:
     st.write(f"Stop-Loss: {stop_loss}%")
     st.write(f"Position Size: {position_size}% of Capital")
     st.write(f"Risk-Reward Ratio: {risk_reward_ratio}")
+
+    # Calculate Value at Risk (VaR)
+    var = calculate_var(data.iloc[:, 0], confidence_interval)
+    st.write(f"Value at Risk (VaR) at {confidence_interval}% confidence level: {var:.2f}%")
+
+    # Calculate Rolling Volatility
+    volatility = calculate_volatility(data.iloc[:, 0])
+    fig = px.line(volatility, x=volatility.index, y=volatility, title="Rolling Volatility (Annualized)")
+    st.plotly_chart(fig)
+
+    # Calculate Sharpe Ratio
+    sharpe_ratio = calculate_sharpe_ratio(data.iloc[:, 0])
+    st.write(f"Sharpe Ratio: {sharpe_ratio:.2f}")
 
 else:
     st.error("No data found for the given symbol and market. Please check your inputs.")
