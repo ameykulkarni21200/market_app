@@ -99,11 +99,3 @@ plotly.express
 
 
 
-
-
-plotly==5.17.0
-python-dotenv==1.0.0
-
-
-sqlparse==0.4.1
-urllib3==1.26.3
