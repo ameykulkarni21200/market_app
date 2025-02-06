@@ -130,7 +130,7 @@ data = fetch_data(market, symbol, start_date, end_date)
 if not data.empty:
     st.write(f"Data for {symbol}")
     st.write(data)
-    fig = px.line(data, x=data.index, y=data.iloc[:, 3], title=f"{symbol} Price Chart")  # 'Close' column by index (3)
+    fig = px.line(data, x=data.index, y=data.iloc[:, 3], title=f"{symbol} Price Chart")
     st.plotly_chart(fig)
 
     # Risk Management
