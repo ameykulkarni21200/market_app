@@ -72,6 +72,12 @@ def calculate_sortino_ratio(data, risk_free_rate=0.02):
     downside_deviation = returns[returns < 0].std() * np.sqrt(252)
     return excess_returns.mean() / downside_deviation
 
+def calculate_sharpe_ratio(data, risk_free_rate=0.02):
+    returns = data.pct_change().dropna()
+    excess_returns = returns - risk_free_rate / 252
+    sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(252)  # Annualized Sharpe Ratio
+    return sharpe_ratio
+
 # ARIMA Forecasting
 def arima_forecast(data, steps=10):
     model = ARIMA(data, order=(5,1,0))  # ARIMA(5,1,0) is a simple configuration
@@ -105,11 +111,13 @@ if not data.empty:
     cvar = calculate_cvar(data.iloc[:, 0], confidence_interval)
     max_drawdown = calculate_max_drawdown(data.iloc[:, 0])
     sortino_ratio = calculate_sortino_ratio(data.iloc[:, 0])
+    sharpe_ratio = calculate_sharpe_ratio(data.iloc[:, 0])
 
     st.write(f"Value at Risk (VaR): {var:.2f}%")
     st.write(f"Conditional VaR (Expected Shortfall): {cvar:.2f}%")
     st.write(f"Max Drawdown: {max_drawdown:.2f}%")
     st.write(f"Sortino Ratio: {sortino_ratio:.2f}")
+    st.write(f"Sharpe Ratio: {sharpe_ratio:.2f}")
 
     # Market Prediction
     st.header("Market Prediction")
