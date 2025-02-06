@@ -49,10 +49,12 @@ def fetch_data(market, symbol, start_date, end_date):
 def feature_importance(data):
     data = data.dropna()
     if data.shape[0] < 30: return "Insufficient data for training!"
-    y = data['Close'].shift(-1).dropna()
-    X = data.drop(columns=['Close']).iloc[:-1]
+    
+    y = data.iloc[:, 3].shift(-1).dropna()  # 'Close' column by index (3)
+    X = data.iloc[:-1, 1:]  # Drop 'Close' column and use other columns as features
     model = RandomForestRegressor()
     model.fit(X, y)
+    
     return pd.DataFrame({'Feature': X.columns, 'Importance': model.feature_importances_}).sort_values(by="Importance", ascending=False)
 
 # --- Sentiment Analysis ---
@@ -77,8 +79,9 @@ def optimize_portfolio(symbols):
 def automl_prediction(data):
     data = data.dropna()
     if data.shape[0] < 30: return "Insufficient data!"
-    y = data['Close'].shift(-1).dropna()
-    X = data.drop(columns=['Close']).iloc[:-1]
+    
+    y = data.iloc[:, 3].shift(-1).dropna()  # 'Close' column by index (3)
+    X = data.iloc[:-1, 1:]  # Drop 'Close' column and use other columns as features
     automl = TPOTRegressor(generations=5, population_size=20, verbosity=0)
     automl.fit(X, y)
     return automl.predict(X.iloc[-1:])[0]
@@ -97,10 +100,10 @@ def start_streaming():
 # --- Backtesting Trading Strategy ---
 def backtest_strategy(data, strategy):
     if strategy == "Trend Following":
-        data['Signal'] = np.where(data['Close'] > data['Close'].rolling(20).mean(), 1, -1)
+        data['Signal'] = np.where(data.iloc[:, 3] > data.iloc[:, 3].rolling(20).mean(), 1, -1)  # 'Close' column by index (3)
     elif strategy == "Mean Reversion":
-        data['Signal'] = np.where(data['Close'] < data['Close'].rolling(20).mean(), 1, -1)
-    return data[['Close', 'Signal']]
+        data['Signal'] = np.where(data.iloc[:, 3] < data.iloc[:, 3].rolling(20).mean(), 1, -1)  # 'Close' column by index (3)
+    return data.iloc[:, [3, -1]]  # 'Close' and 'Signal' columns by index
 
 # --- Risk Metrics Calculation ---
 def calculate_var(data, confidence_interval=95):
@@ -127,19 +130,19 @@ data = fetch_data(market, symbol, start_date, end_date)
 if not data.empty:
     st.write(f"Data for {symbol}")
     st.write(data)
-    fig = px.line(data, x=data.index, y=data['Close'], title=f"{symbol} Price Chart")
+    fig = px.line(data, x=data.index, y=data.iloc[:, 3], title=f"{symbol} Price Chart")  # 'Close' column by index (3)
     st.plotly_chart(fig)
 
     # Risk Management
     st.header("Risk Management Metrics")
-    var = calculate_var(data['Close'], confidence_interval)
-    max_drawdown = calculate_max_drawdown(data['Close'])
+    var = calculate_var(data.iloc[:, 3], confidence_interval)  # 'Close' column by index (3)
+    max_drawdown = calculate_max_drawdown(data.iloc[:, 3])  # 'Close' column by index (3)
     st.write(f"Value at Risk (VaR): {var:.2f}%")
     st.write(f"Max Drawdown: {max_drawdown:.2f}%")
 
     # AI Model Predictions
     st.header("AI Predictions")
-    forecast = arima_forecast(data['Close'])
+    forecast = arima_forecast(data.iloc[:, 3])  # 'Close' column by index (3)
     st.write(f"ARIMA Forecast: {forecast}")
 
     # Feature Importance
