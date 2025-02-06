@@ -96,6 +96,22 @@ yfinance
 plotly.express
 
 
+streamlit==1.32.2
+tensorflow==2.15.0
+statsmodels==0.14.2
+prophet==1.1.5
+ccxt==4.2.95
+yfinance==0.2.37
+plotly==5.20.0
+newsapi-python
+textblob
+vaderSentiment
+scikit-learn==1.5.1
+pandas==2.2.2
+numpy==2.1.0
+scipy==1.14.1
+matplotlib==3.9.2
+seaborn==0.13.2
 
 
 
