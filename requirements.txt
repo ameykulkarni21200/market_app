@@ -100,10 +100,10 @@ plotly.express
 
 
 
-pandas==2.1.1
+
 plotly==5.17.0
 python-dotenv==1.0.0
-requests==2.31.0
-six==1.15.0
+
+
 sqlparse==0.4.1
 urllib3==1.26.3
