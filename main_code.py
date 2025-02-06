@@ -1,3 +1,18 @@
+# Configure the page
+st.set_page_config(
+    page_title="Financee",
+    page_icon="💰",
+    layout="wide"
+)
+
+
+
+
+
+
+
+
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -246,12 +261,6 @@ def verify_user(username, password):
         return result[0]
     return None
 
-# Configure the page
-st.set_page_config(
-    page_title="Financee",
-    page_icon="💰",
-    layout="wide"
-)
 
 # Initialize session state
 if 'user_id' not in st.session_state:
