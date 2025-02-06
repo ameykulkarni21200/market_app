@@ -6,13 +6,8 @@ import ccxt
 import plotly.express as px
 from statsmodels.tsa.arima.model import ARIMA
 import matplotlib.pyplot as plt
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
-from sklearn.preprocessing import MinMaxScaler
-from fbprophet import Prophet
-import requests
 
-st.title("Trading Strategy, Risk Management & AI Predictions")
+st.title("Trading Strategy, Risk Management & Market Prediction")
 
 # Sidebar Inputs
 st.sidebar.header("Market Selection")
@@ -45,56 +40,44 @@ def fetch_data(market, symbol, start_date, end_date):
 
     return data
 
-# AI Predictions - LSTM Model
-def lstm_forecast(data, steps=10):
-    data = data.values.reshape(-1, 1)
-    scaler = MinMaxScaler()
-    data_scaled = scaler.fit_transform(data)
+# Risk Management Functions
+def calculate_var(data, confidence_interval=95):
+    returns = data.pct_change().dropna()
+    var_percentile = np.percentile(returns, (100 - confidence_interval))
+    return -var_percentile * 100
 
-    X_train, y_train = [], []
-    for i in range(60, len(data_scaled) - steps):
-        X_train.append(data_scaled[i-60:i])
-        y_train.append(data_scaled[i:i+steps])
+def calculate_cvar(data, confidence_interval=95):
+    returns = data.pct_change().dropna()
+    var = np.percentile(returns, (100 - confidence_interval))
+    cvar = returns[returns <= var].mean() * -100
+    return cvar
 
-    X_train, y_train = np.array(X_train), np.array(y_train)
+def calculate_max_drawdown(data):
+    cumulative_returns = (1 + data.pct_change()).cumprod()
+    peak = cumulative_returns.cummax()
+    drawdown = (cumulative_returns - peak) / peak
+    return drawdown.min() * 100
 
-    model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(60, 1)),
-        LSTM(50),
-        Dense(steps)
-    ])
-    model.compile(loss='mse', optimizer='adam')
-    model.fit(X_train, y_train, epochs=5, batch_size=16, verbose=0)
+def calculate_beta(data, benchmark):
+    asset_returns = data.pct_change().dropna()
+    benchmark_returns = benchmark.pct_change().dropna()
+    covariance = np.cov(asset_returns, benchmark_returns)[0, 1]
+    variance = np.var(benchmark_returns)
+    beta = covariance / variance
+    return beta
 
-    X_test = data_scaled[-60:].reshape(1, 60, 1)
-    prediction = model.predict(X_test)
-    prediction = scaler.inverse_transform(prediction)[0]
-    return prediction
+def calculate_sortino_ratio(data, risk_free_rate=0.02):
+    returns = data.pct_change().dropna()
+    excess_returns = returns - risk_free_rate / 252
+    downside_deviation = returns[returns < 0].std() * np.sqrt(252)
+    return excess_returns.mean() / downside_deviation
 
-# AI Predictions - Prophet Model
-def prophet_forecast(data, steps=10):
-    df = data.reset_index()
-    df.columns = ['ds', 'y']
-    model = Prophet()
-    model.fit(df)
-    future = model.make_future_dataframe(periods=steps)
-    forecast = model.predict(future)
-    return forecast[['ds', 'yhat']].tail(steps)
-
-# Sentiment Analysis (Fetch Stock News)
-def fetch_news_sentiment(symbol):
-    url = f"https://newsapi.org/v2/everything?q={symbol}&apiKey=YOUR_NEWSAPI_KEY"
-    response = requests.get(url).json()
-    if 'articles' in response:
-        articles = response['articles'][:5]  # Get top 5 articles
-        sentiments = []
-        for article in articles:
-            text = article['title'] + " " + article['description']
-            sentiment_score = 1 if "positive" in text.lower() else -1 if "negative" in text.lower() else 0
-            sentiments.append(sentiment_score)
-        avg_sentiment = sum(sentiments) / len(sentiments) if sentiments else 0
-        return avg_sentiment, articles
-    return 0, []
+# ARIMA Forecasting
+def arima_forecast(data, steps=10):
+    model = ARIMA(data, order=(5,1,0))  # ARIMA(5,1,0) is a simple configuration
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=steps)
+    return forecast
 
 # Main App
 st.header(f"{market} - {strategy} Strategy")
@@ -116,33 +99,35 @@ if not data.empty:
     fig = px.line(data, x=data.index, y=data.iloc[:, 0], title=f"{symbol} Price Chart")
     st.plotly_chart(fig)
 
-    # Market Predictions
-    st.header("AI Market Predictions")
+    # Risk Management Metrics
+    st.header("Risk Management Metrics")
+    var = calculate_var(data.iloc[:, 0], confidence_interval)
+    cvar = calculate_cvar(data.iloc[:, 0], confidence_interval)
+    max_drawdown = calculate_max_drawdown(data.iloc[:, 0])
+    sortino_ratio = calculate_sortino_ratio(data.iloc[:, 0])
+
+    st.write(f"Value at Risk (VaR): {var:.2f}%")
+    st.write(f"Conditional VaR (Expected Shortfall): {cvar:.2f}%")
+    st.write(f"Max Drawdown: {max_drawdown:.2f}%")
+    st.write(f"Sortino Ratio: {sortino_ratio:.2f}")
+
+    # Market Prediction
+    st.header("Market Prediction")
 
     # ARIMA Forecast
     st.subheader("ARIMA Forecast (Next 10 Days)")
-    arima_forecast = ARIMA(data.iloc[:, 0], order=(5,1,0)).fit().forecast(steps=10)
-    st.write(pd.DataFrame({'Date': pd.date_range(start=data.index[-1], periods=11, freq='D')[1:], 'Predicted Price': arima_forecast}))
+    forecast = arima_forecast(data.iloc[:, 0])
+    forecast_dates = pd.date_range(start=data.index[-1], periods=11, freq='D')[1:]
+    forecast_df = pd.DataFrame({'Date': forecast_dates, 'Predicted Price': forecast})
+    st.write(forecast_df)
 
-    # LSTM Forecast
-    st.subheader("LSTM Forecast (Next 10 Days)")
-    lstm_predictions = lstm_forecast(data.iloc[:, 0])
-    st.write(pd.DataFrame({'Date': pd.date_range(start=data.index[-1], periods=11, freq='D')[1:], 'Predicted Price': lstm_predictions}))
-
-    # Prophet Forecast
-    st.subheader("Prophet Forecast (Next 10 Days)")
-    prophet_pred = prophet_forecast(data.iloc[:, 0])
-    st.write(prophet_pred)
-
-    # Sentiment Analysis
-    st.subheader("Sentiment Analysis on Stock News")
-    sentiment_score, articles = fetch_news_sentiment(symbol)
-    sentiment_label = "Positive 😊" if sentiment_score > 0 else "Negative 😞" if sentiment_score < 0 else "Neutral 😐"
-    st.write(f"Overall Sentiment: {sentiment_label}")
-
-    for article in articles:
-        st.write(f"**{article['title']}** - {article['source']['name']}")
-        st.write(article['url'])
+    # Plot ARIMA Forecast
+    fig, ax = plt.subplots()
+    ax.plot(data.index, data.iloc[:, 0], label="Actual Price")
+    ax.plot(forecast_dates, forecast, label="ARIMA Forecast", linestyle="dashed", color="red")
+    ax.set_title("ARIMA Price Forecast")
+    ax.legend()
+    st.pyplot(fig)
 
 else:
     st.error("No data found for the given symbol and market. Please check your inputs.")
