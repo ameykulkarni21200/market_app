@@ -1,11 +1,3 @@
-# Configure the page
-st.set_page_config(
-    page_title="Financee",
-    page_icon="💰",
-    layout="wide"
-)
-
-
 
 
 
