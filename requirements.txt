@@ -1,4 +1,3 @@
-# Existing dependencies
 anyio==4.4.0
 argon2-cffi==23.1.0
 argon2-cffi-bindings==21.2.0
@@ -87,42 +86,11 @@ webencodings==0.5.1
 websocket-client==1.8.0
 websockets==13.0
 Werkzeug==3.0.3
-
-# Google API dependencies
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
-
-# Financial & Market Data
 numpy
-pandas
-yfinance
 ccxt
-
-# Machine Learning & Feature Engineering
-scikit-learn
-scipy
-joblib
-
-# Portfolio Optimization
-PyPortfolioOpt
-
-# Visualization
-matplotlib
-plotly
+yfinance
 plotly.express
-seaborn
-
-# Sentiment Analysis & NLP
-vaderSentiment
-textblob
-nltk
-
-# Backtesting
-backtrader
-zipline-reloaded
-
-# AutoML for Model Selection
-tpot
-h2o
