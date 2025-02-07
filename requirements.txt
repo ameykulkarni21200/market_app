@@ -123,14 +123,6 @@ scikit-learn==1.2.0
 
 
 
-streamlit
-pandas
-numpy
-yfinance
-ccxt
-plotly
-statsmodels
-scikit-learn
-matplotlib
+
 ta
-scipy
+
