@@ -1,373 +1,192 @@
-import streamlit as st
+import streamlit as st  
 import pandas as pd
 import numpy as np
 import yfinance as yf
 import ccxt
 import plotly.express as px
-import plotly.graph_objects as go
-from statsmodels.tsa.arima.model import ARIMA
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-import sqlite3
-import hashlib
-import json
-import ta
-from scipy import stats
+from statsmodels.tsa.arima.model import ARIMA
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
 
-# Page Configuration
-st.set_page_config(page_title="Advanced Trading & Risk Management Platform", layout="wide")
+st.title("Trading Strategy, Risk Management & Market Prediction")
 
-# Database setup
-def init_db():
-    conn = sqlite3.connect('trading_finance.db')
-    c = conn.cursor()
-    
-    # Create users table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
-        )
-    ''')
-    
-    # Create portfolio table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS portfolio (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            symbol TEXT NOT NULL,
-            quantity REAL NOT NULL,
-            entry_price REAL NOT NULL,
-            date TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    # Create trading_journal table
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS trading_journal (
-            id INTEGER PRIMARY KEY,
-            user_id INTEGER,
-            symbol TEXT NOT NULL,
-            entry_price REAL NOT NULL,
-            exit_price REAL NOT NULL,
-            quantity REAL NOT NULL,
-            strategy TEXT NOT NULL,
-            notes TEXT,
-            date TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+# Sidebar Inputs
+st.sidebar.header("Market Selection")
+market = st.sidebar.selectbox("Choose Market", ["Indian Market", "Crypto Market", "Forex Market"])
 
-init_db()
+st.sidebar.header("Trading Strategy")
+strategy = st.sidebar.selectbox("Choose Strategy", ["Trend Following", "Mean Reversion", "Range Trading", "Scalping", "Market Making"])
 
-# Authentication functions
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+st.sidebar.header("Risk Management")
+stop_loss = st.sidebar.number_input("Stop-Loss (%)", min_value=0.1, max_value=10.0, value=2.0)
+position_size = st.sidebar.number_input("Position Size (% of Capital)", min_value=1, max_value=100, value=10)
+risk_reward_ratio = st.sidebar.number_input("Risk-Reward Ratio", min_value=1.0, max_value=5.0, value=2.0)
+confidence_interval = st.sidebar.number_input("VaR Confidence Interval (%)", min_value=90, max_value=99, value=95)
 
-def create_user(username, password):
-    conn = sqlite3.connect('trading_finance.db')
-    c = conn.cursor()
-    try:
-        c.execute('INSERT INTO users (username, password) VALUES (?, ?)',
-                 (username, hash_password(password)))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+# Function to fetch data
+def fetch_data(market, symbol, start_date, end_date):
+    if market == "Indian Market":
+        data = yf.download(f"{symbol}.NS", start=start_date, end=end_date)
+    elif market == "Crypto Market":
+        exchange = ccxt.binance()
+        data = exchange.fetch_ohlcv(symbol, timeframe='1d', since=exchange.parse8601(start_date))
+        data = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        data['timestamp'] = pd.to_datetime(data['timestamp'], unit='ms')
+        data.set_index('timestamp', inplace=True)
+    elif market == "Forex Market":
+        data = yf.download(symbol, start=start_date, end=end_date)
 
-def verify_user(username, password):
-    conn = sqlite3.connect('trading_finance.db')
-    c = conn.cursor()
-    c.execute('SELECT id, password FROM users WHERE username = ?', (username,))
-    result = c.fetchone()
-    conn.close()
-    if result and result[1] == hash_password(password):
-        return result[0]
-    return None
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = ['_'.join(col).strip() for col in data.columns.values]
 
-# Technical Analysis Functions
-def calculate_technical_indicators(data):
-    # Moving averages
-    data['SMA_20'] = ta.trend.sma_indicator(data['Close'], window=20)
-    data['SMA_50'] = ta.trend.sma_indicator(data['Close'], window=50)
-    data['EMA_20'] = ta.trend.ema_indicator(data['Close'], window=20)
-    
-    # RSI
-    data['RSI'] = ta.momentum.rsi(data['Close'], window=14)
-    
-    # MACD
-    macd = ta.trend.MACD(data['Close'])
-    data['MACD'] = macd.macd()
-    data['MACD_Signal'] = macd.macd_signal()
-    
-    # Bollinger Bands
-    bollinger = ta.volatility.BollingerBands(data['Close'])
-    data['BB_Upper'] = bollinger.bollinger_hband()
-    data['BB_Lower'] = bollinger.bollinger_lband()
-    
     return data
 
-# Advanced Risk Management Functions
-def calculate_position_size(capital, risk_per_trade, stop_loss_pct):
-    """Calculate recommended position size based on risk parameters"""
-    max_loss_amount = capital * (risk_per_trade / 100)
-    position_size = max_loss_amount / (stop_loss_pct / 100)
-    return position_size
+# Risk Management Functions
+def calculate_var(data, confidence_interval=95):
+    returns = data.pct_change().dropna()
+    var_percentile = np.percentile(returns, (100 - confidence_interval))
+    return -var_percentile * 100
 
-def calculate_kelly_criterion(win_rate, win_loss_ratio):
-    """Calculate Kelly Criterion for optimal position sizing"""
-    q = 1 - win_rate
-    kelly = (win_rate * win_loss_ratio - q) / win_loss_ratio
-    return max(0, kelly)  # Never recommend negative position sizes
+def calculate_cvar(data, confidence_interval=95):
+    returns = data.pct_change().dropna()
+    var = np.percentile(returns, (100 - confidence_interval))
+    cvar = returns[returns <= var].mean() * -100
+    return cvar
 
-def calculate_risk_metrics(data):
-    returns = data['Close'].pct_change().dropna()
-    
-    metrics = {
-        'Daily_Volatility': returns.std() * 100,
-        'Annual_Volatility': returns.std() * np.sqrt(252) * 100,
-        'Sharpe_Ratio': (returns.mean() / returns.std()) * np.sqrt(252),
-        'Sortino_Ratio': returns.mean() / returns[returns < 0].std() * np.sqrt(252),
-        'Max_Drawdown': ((data['Close'] / data['Close'].cummax() - 1).min() * 100),
-        'VaR_95': np.percentile(returns, 5) * 100,
-        'CVaR_95': returns[returns <= np.percentile(returns, 5)].mean() * 100
-    }
-    
-    return metrics
+def calculate_max_drawdown(data):
+    cumulative_returns = (1 + data.pct_change()).cumprod()
+    peak = cumulative_returns.cummax()
+    drawdown = (cumulative_returns - peak) / peak
+    return drawdown.min() * 100
 
-# Machine Learning Prediction Function
-def predict_prices(data, forecast_days=30):
-    df = data.copy()
-    
-    # Feature engineering
-    df['Returns'] = df['Close'].pct_change()
-    df['Volatility'] = df['Returns'].rolling(window=20).std()
-    df['SMA_20'] = df['Close'].rolling(window=20).mean()
-    df['SMA_50'] = df['Close'].rolling(window=50).mean()
-    
-    # Prepare features and target
-    df = df.dropna()
-    features = ['Returns', 'Volatility', 'SMA_20', 'SMA_50']
-    X = df[features]
-    y = df['Close']
-    
-    # Split data
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
-    
-    # Train model
-    model = RandomForestRegressor(n_estimators=100, random_state=42)
+def calculate_calmar_ratio(data, risk_free_rate=0.02):
+    annual_return = data.pct_change().mean() * 252
+    max_drawdown = calculate_max_drawdown(data)
+    return annual_return / abs(max_drawdown)
+
+def calculate_omega_ratio(data, threshold=0):
+    returns = data.pct_change().dropna()
+    gain = returns[returns > threshold].sum()
+    loss = abs(returns[returns < threshold].sum())
+    return gain / loss if loss != 0 else np.inf
+
+def calculate_sortino_ratio(data, risk_free_rate=0.02):
+    returns = data.pct_change().dropna()
+    excess_returns = returns - risk_free_rate / 252
+    downside_deviation = returns[returns < 0].std() * np.sqrt(252)
+    return excess_returns.mean() / downside_deviation
+
+def calculate_sharpe_ratio(data, risk_free_rate=0.02):
+    returns = data.pct_change().dropna()
+    excess_returns = returns - risk_free_rate / 252
+    sharpe_ratio = excess_returns.mean() / excess_returns.std() * np.sqrt(252)  # Annualized Sharpe Ratio
+    return sharpe_ratio
+
+# ARIMA Forecasting
+def arima_forecast(data, steps=10):
+    model = ARIMA(data, order=(5,1,0))  # ARIMA(5,1,0) is a simple configuration
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=steps)
+    return forecast
+
+# Linear Regression Forecasting
+def linear_regression_forecast(data, steps=10):
+    data['Date'] = data.index
+    data['Date'] = pd.to_datetime(data['Date']).map(pd.Timestamp.timestamp)
+    X = data[['Date']]
+    y = data['Close']
+   
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+   
+    model = LinearRegression()
     model.fit(X_train, y_train)
-    
-    # Generate future features
-    last_data = df[features].tail(1)
-    future_features = []
-    
-    for _ in range(forecast_days):
-        next_features = last_data.copy()
-        future_features.append(next_features.values[0])
-        
-        # Update features for next prediction
-        returns = (model.predict(next_features)[0] / df['Close'].iloc[-1]) - 1
-        next_features['Returns'] = returns
-        next_features['Volatility'] = df['Volatility'].mean()
-        next_features['SMA_20'] = df['SMA_20'].mean()
-        next_features['SMA_50'] = df['SMA_50'].mean()
-        last_data = next_features
-    
-    future_features = np.array(future_features)
-    predictions = model.predict(future_features)
-    
-    return predictions
+   
+    future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=steps)
+    future_dates_timestamp = future_dates.map(pd.Timestamp.timestamp).values.reshape(-1, 1)
+    forecast = model.predict(future_dates_timestamp)
+   
+    return future_dates, forecast
 
 # Main App
-def main():
-    st.title("Advanced Trading & Risk Management Platform")
-    
-    # Authentication
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = None
-    
-    if not st.session_state.user_id:
-        tab1, tab2 = st.tabs(["Login", "Register"])
-        
-        with tab1:
-            with st.form("login_form"):
-                username = st.text_input("Username")
-                password = st.text_input("Password", type="password")
-                submit = st.form_submit_button("Login")
-                
-                if submit:
-                    user_id = verify_user(username, password)
-                    if user_id:
-                        st.session_state.user_id = user_id
-                        st.success("Login successful!")
-                        st.rerun()
-                    else:
-                        st.error("Invalid credentials")
-        
-        with tab2:
-            with st.form("register_form"):
-                new_username = st.text_input("Username")
-                new_password = st.text_input("Password", type="password")
-                submit = st.form_submit_button("Register")
-                
-                if submit:
-                    if create_user(new_username, new_password):
-                        st.success("Registration successful! Please login.")
-                    else:
-                        st.error("Username already exists")
-        return
-    
-    # Sidebar
-    st.sidebar.title("Configuration")
-    
-    # Market Selection
-    market = st.sidebar.selectbox("Choose Market", ["Stocks", "Crypto", "Forex"])
-    symbol = st.sidebar.text_input("Enter Symbol", "AAPL" if market == "Stocks" else "BTC/USDT")
-    
-    # Date Range
-    start_date = st.sidebar.date_input("Start Date", datetime.now() - timedelta(days=365))
-    end_date = st.sidebar.date_input("End Date", datetime.now())
-    
-    # Risk Management Parameters
-    st.sidebar.subheader("Risk Management")
-    capital = st.sidebar.number_input("Trading Capital ($)", min_value=100, value=10000)
-    risk_per_trade = st.sidebar.number_input("Risk per Trade (%)", min_value=0.1, max_value=5.0, value=1.0)
-    stop_loss = st.sidebar.number_input("Stop Loss (%)", min_value=0.1, max_value=10.0, value=2.0)
-    
-    # Fetch Data
-    try:
-        if market == "Stocks":
-            data = yf.download(symbol, start=start_date, end=end_date)
-        elif market == "Crypto":
-            exchange = ccxt.binance()
-            ohlcv = exchange.fetch_ohlcv(symbol, '1d', since=int(start_date.timestamp() * 1000))
-            data = pd.DataFrame(ohlcv, columns=['Date', 'Open', 'High', 'Low', 'Close', 'Volume'])
-            data['Date'] = pd.to_datetime(data['Date'], unit='ms')
-            data.set_index('Date', inplace=True)
-        
-        # Calculate Technical Indicators
-        data = calculate_technical_indicators(data)
-        
-        # Main Content
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.subheader("Price Chart with Technical Indicators")
-            fig = go.Figure()
-            
-            # Candlestick chart
-            fig.add_trace(go.Candlestick(
-                x=data.index,
-                open=data['Open'],
-                high=data['High'],
-                low=data['Low'],
-                close=data['Close'],
-                name="OHLC"
-            ))
-            
-            # Add Moving Averages
-            fig.add_trace(go.Scatter(x=data.index, y=data['SMA_20'], name="SMA 20"))
-            fig.add_trace(go.Scatter(x=data.index, y=data['SMA_50'], name="SMA 50"))
-            
-            # Add Bollinger Bands
-            fig.add_trace(go.Scatter(x=data.index, y=data['BB_Upper'], name="BB Upper",
-                                   line=dict(dash='dash')))
-            fig.add_trace(go.Scatter(x=data.index, y=data['BB_Lower'], name="BB Lower",
-                                   line=dict(dash='dash')))
-            
-            fig.update_layout(title=f"{symbol} Price Chart", xaxis_title="Date",
-                            yaxis_title="Price", height=600)
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            st.subheader("Risk Metrics")
-            metrics = calculate_risk_metrics(data)
-            
-            for metric, value in metrics.items():
-                st.metric(metric.replace('_', ' '), f"{value:.2f}%")
-            
-            # Position Sizing Calculator
-            st.subheader("Position Sizing")
-            position_size = calculate_position_size(capital, risk_per_trade, stop_loss)
-            st.write(f"Recommended Position Size: ${position_size:.2f}")
-            
-            # Kelly Criterion
-            win_rate = st.slider("Historical Win Rate (%)", 30, 70, 50)
-            win_loss_ratio = st.slider("Win/Loss Ratio", 1.0, 3.0, 2.0)
-            kelly_pct = calculate_kelly_criterion(win_rate/100, win_loss_ratio) * 100
-            st.write(f"Kelly Criterion Suggested Allocation: {kelly_pct:.1f}%")
-        
-        # Price Prediction
-        st.subheader("Price Prediction")
-        predictions = predict_prices(data)
-        
-        pred_fig = go.Figure()
-        pred_fig.add_trace(go.Scatter(x=data.index, y=data['Close'],
-                                    name="Historical Price"))
-        
-        future_dates = pd.date_range(start=data.index[-1], periods=len(predictions)+1)[1:]
-        pred_fig.add_trace(go.Scatter(x=future_dates, y=predictions,
-                                    name="Predicted Price", line=dict(dash='dash')))
-        
-        pred_fig.update_layout(title="Price Prediction (30 Days)",
-                             xaxis_title="Date", yaxis_title="Price")
-        st.plotly_chart(pred_fig, use_container_width=True)
-        
-        # Trading Journal
-        st.subheader("Trading Journal")
-        with st.form("journal_entry"):
-            cols = st.columns(4)
-            entry_price = cols[0].number_input("Entry Price", min_value=0.0)
-            exit_price = cols[1].number_input("Exit Price", min_value=0.0)
-            quantity = cols[2].number_input("Quantity", min_value=0.0)
-            strategy = cols[3].selectbox("Strategy", ["Trend Following", "Mean Reversion",
-                                                    "Breakout", "Scalping"])
-            notes = st.text_area("Trading Notes")
-            submit_journal = st.form_submit_button("Add Trade")
-            
-            if submit_journal:
-                conn = sqlite3.connect('trading_finance.db')
-                c = conn.cursor()
-                c.execute('''
-                    INSERT INTO trading_journal
-                    (user_id, symbol, entry_price, exit_price, quantity, strategy, notes, date)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (st.session_state.user_id, symbol, entry_price, exit_price,
-                     quantity, strategy, notes, datetime.now().strftime("%Y-%m-%d")))
-                conn.commit()
-                conn.close()
-                st.success("Trade recorded successfully!")
-        
-        # Display Trading Journal
-        conn = sqlite3.connect('trading_finance.db')
-        journal_df = pd.read_sql_query('''
-            SELECT * FROM trading_journal
-            WHERE user_id = ?
-            ORDER BY date DESC
-        ''', conn, params=(st.session_state.user_id,))
-        conn.close()
-        
-        if not journal_df.empty:
-            st.dataframe(journal_df, use_container_width=True)
-        
-    except Exception as e:
-        st.error(f"Error fetching data: {str(e)}")
-    
-    # Logout button
-    if st.sidebar.button("Logout"):
-        st.session_state.user_id = None
-        st.rerun()
+st.header(f"{market} - {strategy} Strategy")
 
-if __name__ == "__main__":
-    main()
+symbol = st.text_input("Enter Symbol", "TCS")
+start_date = st.date_input("Start Date", pd.to_datetime("2022-01-01"))
+end_date = st.date_input("End Date", pd.to_datetime("2025-02-05"))
+
+data = fetch_data(market, symbol, start_date, end_date)
+
+if not data.empty:
+    st.write(f"Data for {symbol}")
+
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = ['_'.join(col) for col in data.columns]
+
+    st.write(data)
+
+    fig = px.line(data, x=data.index, y=data['Close'], title=f"{symbol} Price Chart")
+    st.plotly_chart(fig)
+
+    # Risk Management Metrics
+    st.header("Risk Management Metrics")
+    var = calculate_var(data['Close'], confidence_interval)
+    cvar = calculate_cvar(data['Close'], confidence_interval)
+    max_drawdown = calculate_max_drawdown(data['Close'])
+    calmar_ratio = calculate_calmar_ratio(data['Close'])
+    omega_ratio = calculate_omega_ratio(data['Close'])
+    sortino_ratio = calculate_sortino_ratio(data['Close'])
+    sharpe_ratio = calculate_sharpe_ratio(data['Close'])
+
+    st.write(f"Value at Risk (VaR): {var:.2f}%")
+    st.write(f"Conditional VaR (Expected Shortfall): {cvar:.2f}%")
+    st.write(f"Max Drawdown: {max_drawdown:.2f}%")
+    st.write(f"Calmar Ratio: {calmar_ratio:.2f}")
+    st.write(f"Omega Ratio: {omega_ratio:.2f}")
+    st.write(f"Sortino Ratio: {sortino_ratio:.2f}")
+    st.write(f"Sharpe Ratio: {sharpe_ratio:.2f}")
+
+    # Market Prediction
+    st.header("Market Prediction")
+
+    # ARIMA Forecast
+    st.subheader("ARIMA Forecast (Next 10 Days)")
+    forecast_arima = arima_forecast(data['Close'], steps=10)
+    forecast_dates_arima = pd.date_range(start=data.index[-1], periods=11, freq='D')[1:]
+    forecast_df_arima = pd.DataFrame({'Date': forecast_dates_arima, 'Predicted Price': forecast_arima})
+    st.write(forecast_df_arima)
+
+    # Plot ARIMA Forecast
+    fig, ax = plt.subplots()
+    ax.plot(data.index, data['Close'], label="Actual Price")
+    ax.plot(forecast_dates_arima, forecast_arima, label="ARIMA Forecast", linestyle="dashed", color="red")
+    ax.set_title("ARIMA Price Forecast")
+    ax.legend()
+    st.pyplot(fig)
+
+    # Linear Regression Forecast
+    st.subheader("Linear Regression Forecast (Next 10 Days)")
+    future_dates_lr, forecast_lr = linear_regression_forecast(data, steps=10)
+    forecast_df_lr = pd.DataFrame({'Date': future_dates_lr, 'Predicted Price': forecast_lr})
+    st.write(forecast_df_lr)
+
+    # Plot Linear Regression Forecast
+    fig, ax = plt.subplots()
+    ax.plot(data.index, data['Close'], label="Actual Price")
+    ax.plot(future_dates_lr, forecast_lr, label="Linear Regression Forecast", linestyle="dashed", color="green")
+    ax.set_title("Linear Regression Price Forecast")
+    ax.legend()
+    st.pyplot(fig)
+
+else:
+    st.error("No data found for the given symbol and market. Please check your inputs.")
+
+# Add some custom CSS
+st.markdown("""
+    <style>
+    .stApp {
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+    </style>
+""", unsafe_allow_html=True)
