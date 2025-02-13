@@ -1,5 +1,6 @@
 streamlit==1.18.1
 
-
+pip uninstall streamlit altair
+pip install streamlit
 
 
