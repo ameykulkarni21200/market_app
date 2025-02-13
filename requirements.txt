@@ -1,6 +1,14 @@
 
+streamlit
+pandas
+numpy
+yfinance
+ccxt
+plotly
+matplotlib
+statsmodels
+scikit-learn
 
-pip uninstall streamlit altair
-pip install streamlit
+
 
 
