@@ -90,7 +90,7 @@ st.header(f"{market} - {strategy} Strategy")
 
 symbol = st.text_input("Enter Symbol", "TCS")
 start_date = st.date_input("Start Date", pd.to_datetime("2022-01-01"))
-end_date = st.date_input("End Date", pd.to_datetime("2025-02-12"))
+end_date = st.date_input("End Date", pd.to_datetime("2025-02-05"))
 
 data = fetch_data(market, symbol, start_date, end_date)
 
@@ -431,4 +431,4 @@ st.markdown("""
         margin: 0 auto;
     }
     </style>
-""", unsafe_allow_html=True)
+""", unsafe_allow_html=True)                     
